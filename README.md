@@ -1,17 +1,19 @@
 # stropalshchik-presentation
 
-Starter structure for the presentation project.
+Рабочий репозиторий проекта по подготовке материалов для создания учебной презентации по профессии `Стропальщик`.
 
-## Structure
+## Структура
 
-- `src/` - project source files
-- `assets/` - images, video, and other media
-- `docs/` - project documents, terms of reference, and drafts
-- `docs/техническое-задание.md` - main technical assignment for the presentation
-- `notes.md` - working notes
+- `src/` - служебные и рабочие файлы проекта
+- `assets/` - изображения, логотипы, графика и иные медиафайлы
+- `docs/` - проектные документы и согласуемые материалы
+- `docs/техническое-задание.md` - техническое задание на разработку презентации
+- `docs/план-работ-для-издательства.md` - план работ и чек-лист контроля для издательства
+- `docs/структура-презентации.md` - послайдовая структура будущей презентации
+- `notes.md` - рабочие заметки
 
-## Next steps
+## Текущее состояние
 
-1. Finalize the technical assignment.
-2. Build the slide-by-slide structure.
-3. Prepare speaker notes and visual materials.
+1. Подготовлено техническое задание.
+2. Сформирован план работ для издательства.
+3. Начата разработка структуры презентации.
