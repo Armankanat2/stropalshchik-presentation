@@ -1,5 +1,5 @@
 ﻿param(
-    [string]$InputPath = "deliverables\черновики\КУРС для СТРОПАЛЬЩИКА_черновик_актуальный_0-22.pptx",
+    [string]$InputPath = "deliverables\черновики\КУРС для СТРОПАЛЬЩИКА_черновик_актуальный_0-24-24.pptx",
     [string]$OutputPath = ""
 )
 
@@ -31,24 +31,15 @@ function Get-NextVersionedDraftPath {
     $directory = Split-Path -Parent $CurrentPath
     $fileName = [System.IO.Path]::GetFileNameWithoutExtension($CurrentPath)
     $extension = [System.IO.Path]::GetExtension($CurrentPath)
-    $baseName = $fileName -replace '_\d+-\d+$', ''
-    $pattern = '^' + [regex]::Escape($baseName) + '_(\d+)-(\d+)' + [regex]::Escape($extension) + '$'
-
-    $maxMajor = 0
-    $maxMinor = -1
-    foreach ($file in Get-ChildItem -LiteralPath $directory -File -ErrorAction SilentlyContinue) {
-        if ($file.Name -match $pattern) {
-            $major = [int]$matches[1]
-            $minor = [int]$matches[2]
-            if (($major -gt $maxMajor) -or (($major -eq $maxMajor) -and ($minor -gt $maxMinor))) {
-                $maxMajor = $major
-                $maxMinor = $minor
-            }
-        }
+    if ($fileName -match '^(.*_)(\d+)-(\d+)-(\d+)$') {
+        $prefix = $matches[1]
+        $part1 = [int]$matches[2]
+        $part2 = [int]$matches[3]
+        $part3 = [int]$matches[4] + 1
+        return Join-Path $directory ("{0}{1}-{2}-{3}{4}" -f $prefix, $part1, $part2, $part3, $extension)
     }
 
-    $nextMinor = $maxMinor + 1
-    Join-Path $directory ("{0}_{1}-{2}{3}" -f $baseName, $maxMajor, $nextMinor, $extension)
+    return Join-Path $directory ("{0}-1{1}" -f $fileName, $extension)
 }
 
 function Get-OleColor {
@@ -365,17 +356,115 @@ function Configure-FinalSlide {
 
 function Configure-Slide23 {
     param(
-        $Slide,
-        [string]$ImagePath
+        $Slide
     )
 
-    Configure-RightImageSlide -Slide $Slide `
-        -Section "Стропы и грузозахватные приспособления" `
-        -Lead "Иконки и знаки на бирках стропов" `
-        -Body "На бирке ищут схему строповки, ограничения применения и рабочую нагрузку.`r`n`r`nТаблица на бирке показывает, как меняется допустимая нагрузка при разных способах строповки.`r`n`r`nЕсли маркировка непонятна или не читается, строп до уточнения данных не используют." `
-        -ImagePath $ImagePath
+    function Get-MarkdownSectionText {
+        param(
+            [string]$Content,
+            [string]$SectionTitle
+        )
 
-    Add-GeneratedTextBox -Slide $Slide -Name "Gen23_Footer" -Left 40 -Top 430 -Width 640 -Height 20 -Text "Бирка - это рабочая инструкция производителя, а не формальный ярлык." -FontSize 13.2 -Color (Get-OleColor 163 79 20) -Bold $true -Alignment 2 | Out-Null
+        $escapedTitle = [regex]::Escape($SectionTitle)
+        $match = [regex]::Match($Content, "(?ms)^##\s+$escapedTitle\s*\r?\n(.*?)(?=^##\s+|\z)")
+        if ($match.Success) {
+            return $match.Groups[1].Value.Trim()
+        }
+
+        return ""
+    }
+
+    function Get-Slide23CardData {
+        $knowledgeCardDirectory = "E:\нейросети\База знаний по профессиям\Стропальщик\карточки"
+        $cardOrder = @(
+            "нагрузка-без-удавки-слайд-23.md",
+            "нагрузка-с-удавкой-слайд-23.md",
+            "строповка-двумя-стропами-под-углом-45-слайд-23.md",
+            "строповка-двумя-стропами-под-углом-90-слайд-23.md"
+        )
+
+        $cards = New-Object System.Collections.Generic.List[object]
+        foreach ($cardFileName in $cardOrder) {
+            $cardPath = Join-Path $knowledgeCardDirectory $cardFileName
+            if (-not (Test-Path -LiteralPath $cardPath)) {
+                continue
+            }
+
+            $content = [System.IO.File]::ReadAllText($cardPath, [System.Text.Encoding]::UTF8)
+            $imageMatch = [regex]::Match($content, '(?m)^- Основное фото:\s*`([^`]+)`')
+            if (-not $imageMatch.Success) {
+                continue
+            }
+
+            $definition = Get-MarkdownSectionText -Content $content -SectionTitle "Текстовая расшифровка определения"
+            $definitionParagraph = ($definition -split "(?:\r?\n){2,}")[0].Trim()
+            $displayText = switch ($cardFileName) {
+                "нагрузка-без-удавки-слайд-23.md" { "Без удавки: допустимая нагрузка соответствует заявленной грузоподъемности стропа." }
+                "нагрузка-с-удавкой-слайд-23.md" { "Удавка: грузоподъемность стропа снижается на 20% от паспортной." }
+                "строповка-двумя-стропами-под-углом-45-слайд-23.md" { "Два стропа под углом 45°: грузоподъемность каждого стропа снижается на 10%." }
+                "строповка-двумя-стропами-под-углом-90-слайд-23.md" { "Два стропа под углом 90°: грузоподъемность каждого стропа снижается на 30%." }
+                default { $definitionParagraph }
+            }
+            $resolvedImagePath = [System.IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $cardPath) $imageMatch.Groups[1].Value))
+
+            $cards.Add([pscustomobject]@{
+                FileName   = $cardFileName
+                Definition = $definitionParagraph
+                DisplayText = $displayText
+                ImagePath   = $resolvedImagePath
+            })
+        }
+
+        return $cards
+    }
+
+    Initialize-Slide -Slide $Slide -Section "Стропы и грузозахватные приспособления" -Lead "Как схема строповки влияет на допустимую нагрузку" -LeadFontSize 18 -LeadWidth 650 -LeadHeight 46
+
+    $introShape = $Slide.Shapes.Item("TextBox 9")
+    $introShape.Left = 26
+    $introShape.Top = 124
+    $introShape.Width = 420
+    $introShape.Height = 24
+    Set-ShapeText -Shape $introShape -Text "Текст слева поясняет схему строповки." -FontSize 12.2 -Color (Get-OleColor 90 90 90) -Bold $true
+
+    Add-GeneratedTextBox -Slide $Slide -Name "Gen23_ImageCaption" -Left 370 -Top 110 -Width 316 -Height 26 -Text "Таблица на бирке показывает, как меняется допустимая нагрузка при разных способах строповки" -FontSize 10.4 -Color (Get-OleColor 90 90 90) -Alignment 2 | Out-Null
+
+    $cards = Get-Slide23CardData
+    $rowTop = 154
+    $rowHeight = 72
+    $textLeft = 26
+    $textWidth = 432
+    $imageLeft = 492
+    $imageWidth = 205
+    $imageHeight = 66
+
+    for ($index = 0; $index -lt $cards.Count; $index++) {
+        $card = $cards[$index]
+        $top = $rowTop + ($index * $rowHeight)
+
+        Add-GeneratedTextBox -Slide $Slide `
+            -Name ("Gen23_Text_{0}" -f ($index + 1)) `
+            -Left $textLeft `
+            -Top $top `
+            -Width $textWidth `
+            -Height 44 `
+            -Text $card.DisplayText `
+            -FontSize 10.2 `
+            -Color (Get-OleColor 60 60 60) `
+            -Alignment 1 | Out-Null
+
+        if (Test-Path -LiteralPath $card.ImagePath) {
+            Replace-ContentPicture -Slide $Slide `
+                -ImagePath $card.ImagePath `
+                -Left $imageLeft `
+                -Top $top `
+                -MaxWidth $imageWidth `
+                -MaxHeight $imageHeight `
+                -Name ("Gen23_Image_{0}" -f ($index + 1)) | Out-Null
+        }
+    }
+
+    Add-GeneratedTextBox -Slide $Slide -Name "Gen23_Footer" -Left 22 -Top 432 -Width 676 -Height 20 -Text "Бирка - это рабочая инструкция производителя, а не формальный ярлык." -FontSize 11.6 -Color (Get-OleColor 163 79 20) -Bold $true -Alignment 2 | Out-Null
 }
 
 function Replace-SlideWithTemplate {
@@ -418,14 +507,14 @@ $specs = @(
     @{ Index = 35; Kind = "Transition"; Section = "Алгоритм выполнения работ стропальщика"; Lead = "Общий алгоритм выполнения работ стропальщика"; Caption = "Задание -> оценка условий -> выбор оснастки -> строповка -> пробный подъем -> перемещение -> установка -> завершение."; Image = Resolve-ProjectPath "assets\working-visuals\37-59\slide-37-algorithm-background.png" }
     @{ Index = 36; Kind = "RightImage"; Section = "Алгоритм выполнения работ стропальщика"; Lead = "Получение задания и уточнение условий работы"; Body = "До начала работ стропальщик должен понимать задачу, массу груза, маршрут перемещения и особые ограничения.`r`n`r`nЕсли не хватает данных по схеме строповки или условиям площадки, работу не начинают до уточнения."; Image = Resolve-ProjectPath "assets\working-visuals\37-59\slide-38-task-briefing.png" }
     @{ Index = 37; Kind = "RightImage"; Section = "Алгоритм выполнения работ стропальщика"; Lead = "Когда стропальщик не приступает к работе"; Body = "К работе не приступают, если:`r`n- задача неясна`r`n- неизвестна масса груза`r`n- нет схемы или маркировки`r`n- оснастка вызывает сомнение`r`n- условия на площадке небезопасны."; Image = Resolve-ProjectPath "assets\working-visuals\37-59\slide-39-do-not-start.jfif" }
-    @{ Index = 38; Kind = "RightImage"; Section = "Алгоритм выполнения работ стропальщика"; Lead = "Оценка условий, проверка СИЗ и готовности к работе"; Body = "Перед началом работ проверяют СИЗ, обзорность, состояние площадки, освещенность и наличие опасных факторов.`r`n`r`nБез готовности людей и места подъем даже исправным краном выполнять нельзя."; Image = Resolve-ProjectPath "assets\working-visuals\37-59\slide-40-ppe-and-readiness.png" }
+    @{ Index = 38; Kind = "RightImage"; Section = "Алгоритм выполнения работ стропальщика"; Lead = "Оценка условий, проверка СИЗ и готовности к работе"; Body = "Перед началом работ проверяют СИЗ, обзорность, состояние площадки, освещенность и наличие опасных факторов.`r`n`r`nУбедившись, что ничего не мешает безопасно выполнить работу, приступают к строповке груза."; Image = Resolve-ProjectPath "assets\working-visuals\37-59\slide-40-ppe-and-readiness.png" }
     @{ Index = 39; Kind = "RightImage"; Section = "Алгоритм выполнения работ стропальщика"; Lead = "Выбор способа строповки и подбор оснастки"; Body = "Способ строповки выбирают по массе, форме, центру тяжести и точкам захвата груза.`r`n`r`nОснастка должна соответствовать задаче по грузоподъемности и длине ветвей."; Image = Resolve-ProjectPath "assets\working-visuals\37-59\slide-41-select-slinging-scheme.png" }
     @{ Index = 40; Kind = "RightImage"; Section = "Алгоритм выполнения работ стропальщика"; Lead = "Подготовка груза к подъему"; Body = "Перед подъемом освобождают груз от креплений, проверяют устойчивость, укладывают подкладки и убирают лишние предметы из зоны работы.`r`n`r`nГруз должен быть готов к безопасной строповке и перемещению."; Image = Resolve-ProjectPath "assets\working-visuals\37-59\slide-42-prepare-load-area.jfif" }
-    @{ Index = 41; Kind = "RightImage"; Section = "Алгоритм выполнения работ стропальщика"; Lead = "Строповка груза"; Body = "Стропы устанавливают в штатные точки или по утвержденной схеме.`r`n`r`nНельзя допускать перекоса, скручивания, перегиба и случайного смещения центра тяжести."; Image = Resolve-ProjectPath "assets\working-visuals\37-59\slide-43-slinging-process.jfif" }
+    @{ Index = 41; Kind = "RightImage"; Section = "Алгоритм выполнения работ стропальщика"; Lead = "Строповка груза"; Body = "Стропы устанавливают в штатные точки (проушина, рым, цапфа) или по утвержденной схеме.`r`n`r`nНельзя допускать перекоса, скручивания, перегиба и случайного смещения центра тяжести.`r`nНельзя подтаскивать груз.`r`n`r`nНельзя забивать крюк молотком в проушину.`r`n`r`nНе использованные ветви стропа цепляются за гак."; Image = Resolve-ProjectPath "assets\working-visuals\37-59\slide-43-slinging-process.jfif" }
     @{ Index = 42; Kind = "RightImage"; Section = "Алгоритм выполнения работ стропальщика"; Lead = "Пробный подъем и контроль правильности строповки"; Body = "Пробный подъем выполняют на небольшую высоту.`r`n`r`nНа этом этапе проверяют устойчивость груза, работу тормозов, правильность схемы и отсутствие перекоса."; Image = Resolve-ProjectPath "assets\working-visuals\37-59\slide-44-test-lift.png" }
-    @{ Index = 43; Kind = "RightImage"; Section = "Алгоритм выполнения работ стропальщика"; Lead = "Сопровождение и перемещение груза"; Body = "Во время перемещения груз сопровождают с безопасной позиции, не заходя под подвешенный груз и не поправляя его руками в опасной фазе.`r`n`r`nДвижение должно быть плавным и управляемым."; Image = Resolve-ProjectPath "assets\working-visuals\37-59\slide-45-guide-load.jfif" }
-    @{ Index = 44; Kind = "RightImage"; Section = "Алгоритм выполнения работ стропальщика"; Lead = "Установка груза на место"; Body = "Перед опусканием проверяют место установки, подкладки и наличие свободного пространства.`r`n`r`nГруз ставят устойчиво, чтобы после освобождения стропов он не сместился и не опрокинулся."; Image = Resolve-ProjectPath "assets\working-visuals\37-59\slide-46-place-load.jfif" }
-    @{ Index = 45; Kind = "RightImage"; Section = "Алгоритм выполнения работ стропальщика"; Lead = "Снятие стропов и завершение операции"; Body = "Стропы снимают только после полной устойчивой установки груза.`r`n`r`nПосле операции осматривают оснастку и рабочую зону, убирают оборудование и сообщают о замеченных дефектах."; Image = Resolve-ProjectPath "assets\working-visuals\37-59\slide-47-remove-slings.jfif" }
+    @{ Index = 43; Kind = "RightImage"; Section = "Алгоритм выполнения работ стропальщика"; Lead = "Сопровождение и перемещение груза"; Body = "Подойти к грузу можно если его подняли не выше 1метра от земли.`r`n`r`nДля контроля груза в момент перемещения используйте оттяжки.`r`n`r`nВо время перемещения груз сопровождают с безопасной позиции, не заходя под подвешенный груз и не поправляя его руками в опасной фазе.`r`n`r`nДвижение должно быть плавным и управляемым."; Image = Resolve-ProjectPath "assets\working-visuals\37-59\slide-45-guide-load.jfif" }
+    @{ Index = 44; Kind = "RightImage"; Section = "Алгоритм выполнения работ стропальщика"; Lead = "Установка груза на место"; Body = "Перед опусканием проверяют место установки, подкладки и наличие свободного пространства.`r`n`r`nГруз ставят устойчиво, чтобы после освобождения стропов он не сместился и не опрокинулся."; Image = Resolve-ProjectPath "assets\working-visuals\37-59\slide-44-place-load.png" }
+    @{ Index = 45; Kind = "RightImage"; Section = "Алгоритм выполнения работ стропальщика"; Lead = "Снятие стропов и завершение операции"; Body = "Стропы снимают только после полной устойчивой установки груза.`r`n`r`nПосле операции осматривают оснастку и рабочую зону, убирают оборудование и сообщают о замеченных дефектах."; Image = Resolve-ProjectPath "assets\working-visuals\37-59\slide-45-remove-slings.png" }
     @{ Index = 46; Kind = "RightImage"; Section = "Алгоритм выполнения работ стропальщика"; Lead = "Типовые ошибки при выполнении работ стропальщика"; Body = "- поспешный старт без уточнений`r`n- неправильный выбор оснастки`r`n- отсутствие пробного подъема`r`n- попытка поправить груз в опасной фазе`r`n- игнорирование замеченных нарушений"; Image = Resolve-ProjectPath "assets\working-visuals\37-59\slide-48-typical-errors.jfif" }
     @{ Index = 47; Kind = "RightImage"; Section = "Основные принципы строповки"; Lead = "Что такое правильная строповка и её основные принципы"; Body = "Правильная строповка удерживает груз устойчиво, не повреждает его и не перегружает ветви стропа.`r`n`r`nГлавные принципы: устойчивость, сохранение центра тяжести, защита от кромок и понятная схема подъема."; Image = Resolve-ProjectPath "assets\working-visuals\37-59\slide-49-correct-slinging-principles.png" }
     @{ Index = 48; Kind = "RightImage"; Section = "Основные принципы строповки"; Lead = "Что нужно проверить перед строповкой груза"; Body = "Проверяют массу, форму, центр тяжести, точки зацепления, наличие острых кромок и маршрут перемещения.`r`n`r`nБез этих данных подобрать безопасную схему строповки нельзя."; Image = Resolve-ProjectPath "assets\working-visuals\37-59\slide-50-check-before-slinging.png" }
@@ -484,7 +573,7 @@ try {
     $powerPoint.Visible = -1
     $presentation = $powerPoint.Presentations.Open($resolvedOutputPath, $false, $false, $false)
 
-    Configure-Slide23 -Slide $presentation.Slides.Item(23) -ImagePath (Resolve-ProjectPath "assets\working-visuals\22-36\slide-23-strength-loss-chart.png")
+    Configure-Slide23 -Slide $presentation.Slides.Item(23)
     $presentation.Slides.Item(24).Delete()
 
     foreach ($spec in ($specs | Sort-Object Index -Descending)) {
